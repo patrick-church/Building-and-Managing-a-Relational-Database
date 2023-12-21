@@ -1,0 +1,496 @@
+Submission file: Final.data302
+
+Running action queries...
+
+
+-------------------------------------------------------------------------------
+DROP VIEW IF EXISTS vOrder_DatesParsed;
+	...success!
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+
+CREATE VIEW vOrder_DatesParsed as
+SELECT *, SUBSTR(date, 1, 4) as year,
+          SUBSTR(date, 6, 2) as month,
+          SUBSTR(date, 9, 2) as day,
+          SUBSTR(date, 1, 7) as year_month
+FROM tOrder
+;
+	...success!
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+DROP VIEW IF EXISTS vSales_Summary;
+	...success!
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+
+CREATE VIEW vSales_Summary as
+WITH
+Columns as
+(
+    SELECT year_month, 
+           sum(qty*unit_price) as TotalSales, 
+           count(DISTINCT order_id) as NumOrders, 
+           count(DISTINCT cust_id) as NumCust
+    FROM vOrder_DatesParsed
+    JOIN tOrderDetail USING(order_id)
+    JOIN tProd USING(prod_id)
+    GROUP BY year_month
+)
+
+SELECT year_month,
+       TotalSales,
+       NumOrders,
+       NumCust,
+       1.*TotalSales/NumCust as SalesPerCust,
+       1.*TotalSales/NumOrders as SalesPerOrder
+FROM Columns
+GROUP BY year_month
+ORDER BY year_month ASC
+;
+	...success!
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+DROP VIEW IF EXISTS vProd_Summary;
+	...success!
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+
+CREATE VIEW vProd_Summary as
+With
+Columns as
+
+(
+    SELECT year_month, prod_id, prod_desc, unit_price, IFNULL(sum(tOrderDetail.qty), 0) as TotalQty
+    FROM vOrder_DatesParsed
+    LEFT JOIN tOrderDetail USING(order_id)
+    LEFT JOIN tProd USING(prod_id)
+    GROUP BY prod_id, year_month
+)
+
+SELECT *, IFNULL(sum(TotalQty*unit_price), 0) as TotalSales
+FROM Columns
+GROUP BY prod_id, year_month
+ORDER BY prod_id ASC
+;
+	...success!
+-------------------------------------------------------------------------------
+
+---------------------------------------q1--------------------------------------
+
+sql:
+
+SELECT * 
+FROM vSales_Summary
+;
+
+params:
+None
+
+Output:
+(NOTE: Output truncated to save space in this report)
+Head:
+year_month  TotalSales  NumOrders  NumCust  SalesPerCust  SalesPerOrder
+   2019-01    68464.61         91       85    805.466000     752.358352
+   2019-02    55560.32         80       73    761.100274     694.504000
+   2019-03    19191.68         51       49    391.666939     376.307451
+   2019-04    20912.07         48       46    454.610217     435.668125
+   2019-05    11973.34         50       46    260.290000     239.466800
+
+Tail:
+year_month  TotalSales  NumOrders  NumCust  SalesPerCust  SalesPerOrder
+   2021-06   154172.49        124       98   1573.188673    1243.326532
+   2021-07   200275.39        154      132   1517.237803    1300.489545
+   2021-08   215386.24        161      126   1709.414603    1337.802733
+   2021-09   101263.76        108       92   1100.693043     937.627407
+   2021-10   251768.12        165      127   1982.426142    1525.867394
+
+Number of records returned:
+34
+
+Runtime (secs):
+0.021241
+
+-----------------------------------end of q1-----------------------------------
+
+
+---------------------------------------q2--------------------------------------
+
+sql:
+
+SELECT year_month, MIN(TotalSales)
+FROM vSales_Summary
+;
+
+params:
+None
+
+Output:
+year_month  MIN(TotalSales)
+   2019-09          9360.38
+
+Number of records returned:
+1
+
+Runtime (secs):
+0.015921
+
+-----------------------------------end of q2-----------------------------------
+
+
+---------------------------------------q3--------------------------------------
+
+sql:
+
+WITH
+LowSaleMonth as
+(
+    SELECT year_month, MIN(TotalSales) as MinSales
+    FROM vSales_Summary
+    
+)
+
+SELECT state_id, IFNULL(SUM(qty * unit_price), 0) AS total_sales
+FROM tState 
+LEFT JOIN tZip USING(state_id)
+LEFT JOIN tCust USING(zip)
+LEFT JOIN vOrder_DatesParsed ON tCust.cust_id = vOrder_DatesParsed.cust_id AND vOrder_DatesParsed.year_month = (SELECT year_month FROM LowSaleMonth)
+LEFT JOIN tOrderDetail USING(order_id)
+LEFT JOIN tProd USING(prod_id)
+
+GROUP BY state_id
+ORDER BY state_id ASC
+;
+
+params:
+None
+
+Output:
+(NOTE: Output truncated to save space in this report)
+Head:
+state_id  total_sales
+      AK          0.0
+      AL         28.0
+      AR          0.0
+      AZ          0.0
+      CA        557.0
+
+Tail:
+state_id  total_sales
+      VT       275.87
+      WA         0.00
+      WI         0.00
+      WV         0.00
+      WY         0.00
+
+Number of records returned:
+52
+
+Runtime (secs):
+0.114376
+
+-----------------------------------end of q3-----------------------------------
+
+
+---------------------------------------q4--------------------------------------
+
+sql:
+
+WITH
+LowSaleMonth as
+(
+    SELECT year_month, MIN(TotalSales) as MinSales
+    FROM vSales_Summary
+    
+),
+
+Sales_By_Month_State as
+(
+    SELECT state_id, IFNULL(SUM(qty * unit_price), 0) AS total_sales
+    FROM tState 
+    LEFT JOIN tZip USING(state_id)
+    LEFT JOIN tCust USING(zip)
+    LEFT JOIN vOrder_DatesParsed ON tCust.cust_id = vOrder_DatesParsed.cust_id AND vOrder_DatesParsed.year_month = (SELECT year_month FROM LowSaleMonth)
+    LEFT JOIN tOrderDetail USING(order_id)
+    LEFT JOIN tProd USING(prod_id)
+    GROUP BY state_id
+    HAVING total_sales = 0
+    ORDER BY state_id ASC
+),
+
+No_Sales_states as
+(
+SELECT cust_id, state_id
+FROM tCust
+JOIN tZip USING(zip)
+WHERE state_id IN (SELECT state_id FROM Sales_By_Month_State)
+),
+
+Not_Really_Sure as
+(
+SELECT *
+FROM vOrder_DatesParsed
+WHERE year_month > (SELECT year_month FROM LowSaleMonth)
+)
+
+SELECT cust_id, first, last, addr, city, state_id, zip, SUM(qty * unit_price) as Total_Sales
+FROM tCust
+JOIN tZip USING(zip)
+JOIN Not_Really_Sure USING(cust_id)
+JOIN tOrderDetail USING(order_id)
+JOIN tProd USING(prod_id)
+WHERE state_id IN (SELECT state_id FROM No_Sales_States)
+GROUP BY cust_id
+ORDER BY cust_id ASC
+;
+
+params:
+None
+
+Output:
+(NOTE: Output truncated to save space in this report)
+Head:
+ cust_id           first     last                 addr       city state_id   zip  Total_Sales
+       3         Dodonna    Garza 3639 Briarwood Court     Tarzan       TX 79783       364.90
+       6           Motti     Hunt    1919 Smith Street     Hamden       CT 06514      5465.67
+       7      Mace Windu Woodward 5655 Jefferson Court      Milan       NM 87021      9422.33
+      11 Senator Ask Aak     Chen    2027 Pheasant Run      Wayne       NJ 07470     11028.03
+      12           Jabba   Oneill   9371 Walnut Street Swampscott       MA 01907      9848.63
+
+Tail:
+ cust_id       first      last                 addr          city state_id   zip  Total_Sales
+     297     Tey How Rodriguez  9164 Madison Street         Brick       NJ 08723      4347.75
+     301        Rabe  Mitchell    8021 Heather Lane       Pindall       AR 72669      8828.98
+     302     Taun We    Miller  4011 Sycamore Drive Yellow Jacket       CO 81335     11850.42
+     305     Dodonna   Francis 8070 Briarwood Court      Buckland       AK 99727      4878.76
+     308 Unkar Plutt   Mcbride 9487 Devonshire Driv   East Orange       NJ 07018      2486.38
+
+Number of records returned:
+118
+
+Runtime (secs):
+0.110965
+
+-----------------------------------end of q4-----------------------------------
+
+
+---------------------------------------q5--------------------------------------
+
+sql:
+
+With
+TotalMonths as
+( 
+    SELECT count(DISTINCT year_month)
+    FROM vSales_Summary
+),
+
+MostRecentMonth as
+(
+    SELECT year_month
+    FROM vOrder_DatesParsed
+    ORDER BY year_month DESC
+    LIMIT 1
+),
+
+RecentMonthOrders as
+(
+    SELECT * 
+    FROM vOrder_DatesParsed
+    WHERE year_month = (SELECT year_month FROM MostRecentMonth)
+)
+
+SELECT DISTINCT cust_id, first, last, zip, city, state_id, sum(qty*unit_price)/((SELECT * FROM TotalMonths)-1) as AvgPriorMonthSales
+FROM tCust
+JOIN tZip USING(zip)
+JOIN vOrder_DatesParsed USING(cust_id)
+JOIN tOrderDetail USING(order_id)
+JOIN tProd USING(prod_id)
+WHERE cust_id NOT IN (SELECT cust_id FROM RecentMonthOrders)
+GROUP BY cust_id
+ORDER BY AvgPriorMonthSales DESC
+;
+
+params:
+None
+
+Output:
+(NOTE: Output truncated to save space in this report)
+Head:
+ cust_id            first     last   zip         city state_id  AvgPriorMonthSales
+      39      Unkar Plutt Woodward 51650     Riverton       IA          590.661212
+      46 Captain Antilles   Walker 20005   Washington       DC          561.206667
+     152      Unkar Plutt  Schmidt 13623 Chippewa Bay       NY          533.290000
+     207            Jobal Mitchell 38629      Falkner       MS          519.972424
+     202      Gold Leader  Elliott 25938       Victor       WV          509.008182
+
+Tail:
+ cust_id                first      last   zip        city state_id  AvgPriorMonthSales
+     142           Mace Windu    Greene 61957     Windsor       IL           43.382121
+     243           Darth Maul   Walters 58046        Hope       ND           39.101212
+     241             Bala-Tik     Zhang 93673      Traver       CA           36.436364
+     233 Clone Commander Cody    Benson 28390 Spring Lake       NC           25.335152
+     161           Darth Maul Rodriguez 04537    Boothbay       ME           21.930000
+
+Number of records returned:
+183
+
+Runtime (secs):
+0.032865
+
+-----------------------------------end of q5-----------------------------------
+
+
+---------------------------------------q6--------------------------------------
+
+sql:
+
+With
+All_Months as
+( 
+    SELECT year_month
+    FROM vSales_Summary
+),
+
+All_Products as
+(
+    SELECT prod_id, prod_desc, unit_price
+    FROM tProd
+),
+
+All_Combos as
+(
+    SELECT *
+    FROM All_Months
+    CROSS JOIN All_Products
+)
+
+SELECT prod_id, prod_desc, unit_price, year_month
+FROM All_Combos
+WHERE (All_Combos.year_month || All_Combos.prod_id) NOT IN (SELECT vProd_Summary.year_month || vProd_Summary.prod_id FROM vProd_Summary)
+ORDER BY prod_id ASC, year_month ASC
+
+;
+
+params:
+None
+
+Output:
+(NOTE: Output truncated to save space in this report)
+Head:
+ prod_id   prod_desc  unit_price year_month
+     300      Washer        0.10    2019-09
+     301        Nail        0.25    2019-09
+     305     Bradawl        1.99    2019-09
+     307   Sandpaper        3.00    2019-03
+     308 Screwdriver        3.00    2019-05
+
+Tail:
+ prod_id prod_desc  unit_price year_month
+     325   Toolbox       50.00    2019-07
+     325   Toolbox       50.00    2019-09
+     328 Workbench      300.00    2019-04
+     329  Chainsaw      499.99    2019-08
+     329  Chainsaw      499.99    2019-09
+
+Number of records returned:
+18
+
+Runtime (secs):
+0.034783
+
+-----------------------------------end of q6-----------------------------------
+
+
+---------------------------------------q7--------------------------------------
+
+sql:
+
+SELECT prod_id, prod_desc, unit_price, TotalSales
+FROM vProd_Summary
+GROUP BY prod_id
+ORDER BY TotalSales DESC
+LIMIT 5
+;
+
+params:
+None
+
+Output:
+ prod_id    prod_desc  unit_price  TotalSales
+     329     Chainsaw      499.99    25999.48
+     328    Workbench      300.00    14400.00
+     326        Drill       69.00     5313.00
+     325      Toolbox       50.00     2700.00
+     322 Monkeywrench       29.95     2485.85
+
+Number of records returned:
+5
+
+Runtime (secs):
+0.019432
+
+-----------------------------------end of q7-----------------------------------
+
+
+---------------------------------------q8--------------------------------------
+
+sql:
+
+With
+Highest_Selling_Month as
+(
+    SELECT year_month, MAX(TotalSales) as TotalSales
+    FROM vSales_Summary
+),
+
+Top_Selling_Product as
+(
+    SELECT year_month, prod_id, prod_desc, TotalQty, TotalSales
+    FROM vProd_Summary
+    WHERE year_month LIKE (SELECT year_month FROM Highest_Selling_Month)
+    ORDER BY TotalSales DESC
+    LIMIT 1
+)
+
+SELECT Highest_Selling_Month.year_month, prod_id, prod_desc, 
+                Highest_Selling_Month.TotalSales as AllProdSales,
+                Top_Selling_Product.TotalSales as TopProdSales,
+                Top_Selling_Product.TotalQty
+FROM Highest_Selling_Month
+JOIN Top_Selling_Product
+;
+
+params:
+None
+
+Output:
+year_month  prod_id prod_desc  AllProdSales  TopProdSales  TotalQty
+   2021-10      329  Chainsaw     251768.12      86998.26       174
+
+Number of records returned:
+1
+
+Runtime (secs):
+0.033756
+
+-----------------------------------end of q8-----------------------------------
+
+
+-----------------------Unrecognized key(s) in submission-----------------------
+
+Nothing to worry about here!
+
+
+--------------------end of Unrecognized key(s) in submission-------------------
+
